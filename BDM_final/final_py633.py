@@ -264,10 +264,6 @@ def process(i):
         return str(i)
 
 
-def to_csv(rdd):
-    li = map(process, rdd)
-    return ','.join(li)
-
 if __name__ == "__main__":
     start_time = time.time()
     output = sys.argv[1]
@@ -275,19 +271,21 @@ if __name__ == "__main__":
     sc = SparkContext()
     spark = SparkSession(sc)
 
-    centerline = sc.textFile('hdfs:///tmp/bdm/nyc_cscl.csv') \
-    .mapPartitionsWithIndex(processCenterline)
+    centerline = sc.textFile('hdfs:///tmp/bdm/nyc_cscl.csv')
     
-    violations = sc.textFile('hdfs:///tmp/bdm/nyc_parking_violation/') \
-    .mapPartitionsWithIndex(dataprocessing)
+    rdd_cline = centerline.mapPartitionsWithIndex(processCenterline)
     
-    vio = spark.createDataFrame(violations, ('year', 'street', 'boro', 'house_number', 'is_left'))
-    cline = spark.createDataFrame(centerline, ('pysicalID', 'street', 'boro', 'low', 'high', 'is_left'))
-    condition = [vio.boro == cline.boro, 
-             vio.street == cline.street,
-             vio.is_left == cline.is_left, 
-             (vio.house_number >= cline.low) & (vio.house_number <= cline.high)]
-    df = cline.join(vio, condition, how='left').groupBy([cline.pysicalID, vio.year]).count()
+    violations = sc.textFile('hdfs:///tmp/bdm/nyc_parking_violation/')
+    
+    rdd_violations = violations.mapPartitionsWithIndex(processViolation)
+    
+    violations = spark.createDataFrame(rdd_violations, ('year', 'street', 'boro', 'house_number', 'is_left'))
+    cline = spark.createDataFrame(rdd_cline, ('pysicalID', 'street', 'boro', 'low', 'high', 'is_left'))
+    condition = [violations.boro == cline.boro, 
+             violations.street == cline.street,
+             violations.is_left == cline.is_left, 
+             (violations.house_number >= cline.low) & (violations.house_number <= cline.high)]
+    df = cline.join(violations, condition, how='left').groupBy([cline.pysicalID, violations.year]).count()
     
     df.rdd.map(lambda x: ((x[0], x[1]), x[2])) \
             .mapPartitions(processformat) \
@@ -295,7 +293,7 @@ if __name__ == "__main__":
             .sortByKey() \
             .mapValues(lambda y: y + (compute_ols(y=list(y)),)) \
             .map(lambda x: ((x[0],)+x[1]))\
-            .map(to_csv)\
+            .map(lambda x: (str(x)[1:-1])) \
             .saveAsTextFile(output)
     
     print('total running time : {} seconds'.format(time.time()-start_time))
