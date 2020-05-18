@@ -138,7 +138,7 @@ if __name__ == "__main__":
     df = cline.join(vio, condition, how='left').groupBy([cline.pysicalID, vio.year]).count()
     
     df.rdd.map(lambda x: ((x[0], x[1]), x[2])) \
-            .mapPartitions(formatprocessing) \
+            .mapPartitions(processformat) \
             .reduceByKey(lambda x,y: (x[0]+y[0], x[1]+y[1], x[2]+y[2], x[3]+y[3], x[4]+y[4])) \
             .sortByKey() \
             .mapValues(lambda y: y + (compute_ols(y=list(y)),)) \
